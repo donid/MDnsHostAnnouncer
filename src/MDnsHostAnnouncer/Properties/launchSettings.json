@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MDnsHostAnnouncer": {
+      "commandName": "Project",
+      "commandLineArgs": "dagobert"
+    }
+  }
+}
