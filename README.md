@@ -1,4 +1,7 @@
+[![.NET](https://github.com/donid/MDnsHostAnnouncer/actions/workflows/dotnet.yml/badge.svg)](https://github.com/donid/MDnsHostAnnouncer/actions/workflows/dotnet.yml)
+
 # MDnsHostAnnouncer
+
 MDnsHostAnnouncer allows you to create alias names for hosts in a local network
 
 This tool is currently only tested with a FritzBox (Firmware 7.29) as DNS server.
