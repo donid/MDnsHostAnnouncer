@@ -6,7 +6,7 @@ MDnsHostAnnouncer allows you to create alias names for hosts in a local network
 
 This tool is currently only tested with a FritzBox (Firmware 7.29) as DNS server.
 
-I haven't found a way to create an alias (or CNAME) for a network device (PC, notebook etc.).
+I haven't found a way to create an alias (or CNAME) for a network device (PC, notebook etc.)
 in the FritzBox web-ui for DNS. But I saw a comment in an Internet forum, where someone
 claimed that the FritzBox listens to mDNS (MultiCastDNS) announcements and "integrates" them into its own list of hosts.
 
