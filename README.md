@@ -23,3 +23,7 @@ I couldn't find detailed documentation for this behavior, only a statement from 
 
 According to my experiments the FritzBox will "forget" the "mDNS entries" in
 its host list after about 6 hours.
+
+If you want to see what is happening in your network with regards to mDNS you can use this project (part of the library that MDnsHostAnnouncer uses):
+
+<https://github.com/richardschneider/net-mdns/tree/master/Browser>
