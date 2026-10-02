@@ -2,7 +2,7 @@
   "profiles": {
     "MDnsHostAnnouncer": {
       "commandName": "Project",
-      "commandLineArgs": "dagobert"
+      "commandLineArgs": "-f \"E:\\MDnsHostAnnouncer.yaml\""
     }
   }
 }

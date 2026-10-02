@@ -1,86 +1,125 @@
-﻿using System.Net;
-using System.Text.RegularExpressions;
+using CommandLine;
+using CommandLine.Text;
 
 using Makaretu.Dns;
+using System.Reflection;
 
-namespace MDnsHostAnnouncer
+namespace MDnsHostAnnouncer;
+
+internal class Program
 {
-	internal class Program
+	private const int cMaxRepeatSeconds = 360_000;
+
+	private static async Task Main(string[] args)
 	{
-		private static void Main(string[] args)
+		Console.Error.WriteLine($"[MDnsHostAnnouncer] version {AssemblyVersion()}");
+
+		ParserResult<Options> parserResult = Parser.Default.ParseArguments<Options>(args);
+		await parserResult.WithParsedAsync(options => RunAsync(options, parserResult));
+	}
+
+	/// <summary>
+	/// The <c>Version</c> from the project file, without the build metadata that the
+	/// SDK appends after a '+'.
+	/// </summary>
+	private static string AssemblyVersion()
+	{
+		string? version = typeof(Program).Assembly
+			.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+			?.InformationalVersion;
+
+		if (string.IsNullOrEmpty(version))
 		{
-			if (args.Length < 1)
-			{
-				Console.WriteLine("Usage:");
-				Console.WriteLine("> MDnsHostAnnouncer AliasHostName");
-				Console.WriteLine("Creates an alias 'AliasHostName' for the current IPAddress of the current host.");
-				Console.WriteLine("> MDnsHostAnnouncer AliasHostName 192.168.178.42 192.168.178.43");
-				Console.WriteLine("Creates an alias 'AliasHostName' for the given IPAddresses.");
-				return;
-			}
-
-			string alias = args[0];
-			if (!IsValidHostName(alias))
-			{
-				Console.WriteLine($"AliasHostName ({alias}) is not valid ( use 2-63 chars: a-z, A-Z, 0-9 or '-' )");
-				return;
-			}
-
-			List<IPAddress> ipAddresses = new();
-
-			if (args.Length > 1)
-			{
-				for (int index = 1; index < args.Length; index++)
-				{
-					string currentArg = args[index];
-					IPAddress? iPAddress = ConvertToIpAddress(currentArg);
-					if (iPAddress == null)
-					{
-						Console.WriteLine($"({index}) '{currentArg}' is not a valid IPAddress.");
-						return;
-					}
-					ipAddresses.Add(iPAddress);
-				}
-			}
-
-			Console.WriteLine($"Creating alias: '{alias}'");
-			if (ipAddresses.Any())
-			{
-				Console.WriteLine($" for IP(s)");
-				foreach (IPAddress iPAddress in ipAddresses)
-				{
-					Console.WriteLine("  " + iPAddress.ToString());
-				}
-			}
-			else
-			{
-				Console.WriteLine($" for current host");
-			}
-
-			List<IPAddress>? nullableIpAddresses = ipAddresses.Any() ? ipAddresses : null;
-			var service = new ServiceProfile("", alias, 0, nullableIpAddresses);
-			var sd = new ServiceDiscovery();
-			sd.Announce(service);
+			return "unknown";
 		}
 
-		private static IPAddress? ConvertToIpAddress(string currentArg)
+		int plus = version.IndexOf('+');
+		return plus < 0 ? version : version[..plus];
+	}
+
+	private static async Task RunAsync(Options options, ParserResult<Options> parserResult)
+	{
+		int? repeatSeconds = options.RepeatSeconds;
+		if (repeatSeconds < 5 || repeatSeconds > cMaxRepeatSeconds)
 		{
-			IPAddress.TryParse(currentArg, out IPAddress? result);
-			return result;
+			Console.WriteLine($"Repeat interval ({repeatSeconds}) is not valid ( use 5 .. {cMaxRepeatSeconds} seconds )");
+			return;
 		}
 
-		// this is a simplified check - not all DNS implementations have the same requirements
-		private static bool IsValidHostName(string alias)
+		AliasListBuilder? aliasList;
+		if (options.FilePath != null)
 		{
-			if (Regex.Match(alias, "^[A-Z0-9\\-]*$", RegexOptions.IgnoreCase).Success == false)
+			if (options.Alias != null)
 			{
-				return false;
+				Console.WriteLine("Use either AliasHostName or --file, not both.");
+				return;
 			}
-			if (alias.Length < 2 || alias.Length > 63)
+			aliasList = AliasListBuilder.LoadFromFile(options.FilePath);
+		}
+		else if (options.Alias != null)
+		{
+			aliasList = AliasListBuilder.CreateFromArguments(options.Alias, options.IpAddresses);
+		}
+		else
+		{
+			Console.Error.WriteLine(HelpText.AutoBuild(parserResult, helpText => helpText, example => example));
+			return;
+		}
+
+		if (aliasList == null)
+		{
+			return;
+		}
+
+		if (repeatSeconds == null)
+		{
+			List<ServiceProfile> services = await aliasList.ResolveServiceProfilesAsync(CancellationToken.None);
+			ServiceDiscovery sd = new();
+			foreach (ServiceProfile service in services)
 			{
-				return false;
+				sd.Announce(service);
 			}
-			return true;
+			return;
+		}
+
+		await AnnounceRepeatedlyAsync(aliasList, TimeSpan.FromSeconds(repeatSeconds.Value));
+	}
+
+	private static async Task AnnounceRepeatedlyAsync(AliasListBuilder aliasList, TimeSpan interval)
+	{
+		using CancellationTokenSource cts = new();
+		ConsoleCancelEventHandler cancelHandler = (sender, e) =>
+		{
+			// keep the process alive, so the loop can end and release its resources
+			e.Cancel = true;
+			cts.Cancel();
+		};
+		Console.CancelKeyPress += cancelHandler;
+
+		try
+		{
+			using ServiceDiscovery sd = new();
+			using PeriodicTimer timer = new(interval);
+			Console.WriteLine($"Repeating the announcement every {interval.TotalSeconds} seconds - press Ctrl+C to stop.");
+			do
+			{
+				// resolved on each repetition, because the IP address of a host name may change
+				List<ServiceProfile> services = await aliasList.ResolveServiceProfilesAsync(cts.Token);
+				foreach (ServiceProfile service in services)
+				{
+					sd.Announce(service);
+				}
+				Console.WriteLine($"{DateTime.Now:G} announced");
+			}
+			while (await timer.WaitForNextTickAsync(cts.Token));
+		}
+		catch (OperationCanceledException)
+		{
+			Console.WriteLine("Stopped.");
+		}
+		finally
+		{
+			Console.CancelKeyPress -= cancelHandler;
 		}
 	}
 }
